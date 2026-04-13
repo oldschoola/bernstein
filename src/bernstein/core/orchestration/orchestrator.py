@@ -3724,22 +3724,28 @@ class Orchestrator:
                     errors="replace",
                     timeout=30,
                 )
-                # Merge main to pick up any new work that was committed there
-                merge_result = subprocess.run(
-                    ["git", "merge", "main", "-m", f"Merge main into {branch_name}"],
+                # Rebase onto main to keep history linear and branch ahead of main
+                rebase_result = subprocess.run(
+                    ["git", "rebase", "main"],
                     cwd=self._workdir,
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
-                    timeout=30,
+                    timeout=60,
                 )
-                if merge_result.returncode != 0:
-                    # Merge failed (conflict or already up-to-date) - log but continue
+                if rebase_result.returncode != 0:
+                    # Rebase failed (conflict or already up-to-date) - abort and log
+                    subprocess.run(
+                        ["git", "rebase", "--abort"],
+                        cwd=self._workdir,
+                        capture_output=True,
+                        timeout=10,
+                    )
                     logger.debug(
-                        "Auto-PR: merge main into %s: %s",
+                        "Auto-PR: rebase %s onto main failed: %s",
                         branch_name,
-                        merge_result.stdout.strip() or merge_result.stderr.strip(),
+                        rebase_result.stdout.strip() or rebase_result.stderr.strip(),
                     )
                 logger.info("Auto-PR: switched to existing branch %s", branch_name)
                 return branch_name
