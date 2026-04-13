@@ -140,6 +140,11 @@ _BERNSTEIN_YAML = "bernstein.yaml"
 _EVENT_RUN_COMPLETED = "run.completed"
 _EVENT_TASK_FAILED = "task.failed"
 
+# Branch naming patterns for auto-PR
+_BRANCH_ISSUE_FMT = "issue-{issue_num}-bernstein"  # task filter branches
+_BRANCH_RUN_FMT = "bernstein/run-{timestamp}"  # feature branches from main
+_BASE_BRANCH = "main"  # default PR target
+
 # Preserve underscore-prefixed aliases so existing test imports keep working
 _compute_total_spent = compute_total_spent
 _total_spent_cache = total_spent_cache
@@ -3584,7 +3589,7 @@ class Orchestrator:
             title=pr_title,
             body=body,
             head=current_branch,
-            base="main",
+            base=_BASE_BRANCH,
         )
 
         if pr_result.success:
@@ -3651,7 +3656,7 @@ class Orchestrator:
 
         # Generate unique branch name
         timestamp = int(time.time())
-        branch_name = f"bernstein/run-{timestamp}"
+        branch_name = _BRANCH_RUN_FMT.format(timestamp=timestamp)
 
         try:
             # Create and switch to the new branch
@@ -3693,7 +3698,7 @@ class Orchestrator:
         match = re.search(r"(?:gh|issue|#)?-?(\d+)", task_filter, re.IGNORECASE)
         if match:
             issue_num = match.group(1)
-            branch_name = f"issue-{issue_num}-bernstein"
+            branch_name = _BRANCH_ISSUE_FMT.format(issue_num=issue_num)
         else:
             # Fallback: sanitize the filter for use as branch name
             sanitized = re.sub(r"[^a-zA-Z0-9-]", "-", task_filter).strip("-").lower()
@@ -3898,22 +3903,22 @@ class Orchestrator:
     def _verify_remote_diff(self, branch: str) -> bool:
         """Verify the pushed branch has commits vs origin/main.
 
-        Fetches the latest refs and checks if the remote branch diverges from
-        origin/main. Returns False if they're identical (no PR possible).
+        Fetches origin/main to ensure we have the latest, then checks if the
+        remote branch diverges from it. Returns False if identical (no PR possible).
         """
         import subprocess
 
         try:
-            # Fetch to ensure we have latest refs
+            # Fetch only main - we just pushed the branch so our local ref is current
             subprocess.run(
-                ["git", "fetch", "origin", "main", branch],
+                ["git", "fetch", "origin", _BASE_BRANCH],
                 cwd=self._workdir,
                 capture_output=True,
                 timeout=30,
             )
             # Check if there's a diff between origin/main and the pushed branch
             result = subprocess.run(
-                ["git", "log", f"origin/main..origin/{branch}", "--oneline"],
+                ["git", "log", f"origin/{_BASE_BRANCH}..origin/{branch}", "--oneline"],
                 cwd=self._workdir,
                 capture_output=True,
                 text=True,
@@ -3922,7 +3927,7 @@ class Orchestrator:
                 timeout=10,
             )
             if not result.stdout.strip():
-                logger.info("Auto-PR: no commits between origin/main and origin/%s - skipping PR", branch)
+                logger.info("Auto-PR: no commits between origin/%s and origin/%s - skipping PR", _BASE_BRANCH, branch)
                 return False
             return True
         except Exception as exc:

@@ -21,7 +21,6 @@ import logging
 import os
 import shutil
 import signal
-import stat
 import subprocess
 import sys
 import time
@@ -31,6 +30,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
+from bernstein.core.git.git_hygiene import rmtree_windows_safe
 from bernstein.core.orchestration.process_utils import is_process_alive
 from bernstein.core.platform_compat import kill_process, kill_process_group
 from bernstein.core.runtime_state import read_supervisor_state
@@ -173,50 +173,6 @@ def _run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         errors="replace",
         check=False,
     )
-
-
-def _rmtree_windows_safe(path: Path, max_attempts: int = 3) -> bool:
-    """Remove a directory tree with Windows file-lock handling.
-
-    On Windows, files may be locked by processes that haven't fully exited,
-    antivirus scanning, or editor file watchers. This function retries with
-    delays and uses a permission-override handler as a last resort.
-
-    Args:
-        path: Directory to remove.
-        max_attempts: Number of retry attempts on Windows (default 3).
-
-    Returns:
-        True if the directory was removed, False otherwise.
-    """
-    if not path.exists():
-        return True
-
-    def _onerror(func: object, fpath: str, exc_info: object) -> None:
-        """Handle permission errors by making file writable and retrying."""
-        try:
-            # Intentional: clear read-only flag on internal worktree files
-            # during cleanup so shutil.rmtree can delete them (Windows).
-            os.chmod(fpath, stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
-            if callable(func):
-                func(fpath)
-        except OSError:
-            pass  # Give up on this file
-
-    attempts = max_attempts if sys.platform == "win32" else 1
-    for attempt in range(attempts):
-        try:
-            shutil.rmtree(path, onerror=_onerror)
-            return True
-        except OSError as exc:
-            if attempt < attempts - 1:
-                # Wait for file locks to release (antivirus, processes exiting)
-                time.sleep(1.0)
-                logger.debug("Retry %d/%d removing %s: %s", attempt + 1, attempts, path, exc)
-            else:
-                logger.warning("Failed to remove %s after %d attempts: %s", path, attempts, exc)
-                return False
-    return False
 
 
 def _is_process_alive(pid: int) -> bool:
@@ -728,7 +684,7 @@ class DrainCoordinator:
 
                 if not removed:  # noqa: SIM102
                     # Fallback: rm -rf with Windows file-lock handling
-                    if _rmtree_windows_safe(entry):
+                    if rmtree_windows_safe(entry):
                         worktrees_removed += 1
 
         # Prune worktree registry BEFORE deleting branches — this

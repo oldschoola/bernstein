@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _rmtree_windows_safe(path: Path, max_attempts: int = 3) -> bool:
+def rmtree_windows_safe(path: Path, max_attempts: int = 3) -> bool:
     """Remove a directory tree with Windows file-lock handling.
 
     On Windows, files may be locked by processes that haven't fully exited,
@@ -173,7 +173,7 @@ def _clean_stale_worktrees(workdir: Path) -> int:
             continue
         if str(entry) not in tracked_paths:
             # Stale directory — not tracked by git
-            if _rmtree_windows_safe(entry):
+            if rmtree_windows_safe(entry):
                 cleaned += 1
                 logger.debug("Removed stale worktree dir: %s", entry.name)
 
