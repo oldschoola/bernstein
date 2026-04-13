@@ -908,7 +908,7 @@ def sync_github_issues_to_backlog(workdir: Path) -> int:
                 logger.debug("Skipping issue #%d - does not match filter '%s'", number, task_filter)
                 continue
 
-        body: str = (issue.get("body") or "")[:500]
+        body: str = issue.get("body") or ""
         labels_raw: list[dict[str, Any]] = issue.get("labels", [])
         labels: list[str] = [str(lbl.get("name", "")).lower() for lbl in labels_raw if lbl.get("name")]
 
