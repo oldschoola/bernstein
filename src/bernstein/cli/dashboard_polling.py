@@ -24,26 +24,44 @@ logger = logging.getLogger(__name__)
 SERVER_URL = "http://127.0.0.1:8052"
 _SPARK_CHARS = "▁▂▃▄▅▆▇█"
 
+# Track connection state to suppress repeated error logs
+_server_connected = True
+
 # -- Data fetching (sync -- called via run_worker in a thread) -----
 
 
 def _get(path: str) -> Any:
+    global _server_connected
     import httpx
 
     try:
-        return httpx.get(f"{SERVER_URL}{path}", timeout=10.0).json()
+        result = httpx.get(f"{SERVER_URL}{path}", timeout=10.0).json()
+        if not _server_connected:
+            logger.info("Dashboard reconnected to task server")
+            _server_connected = True
+        return result
     except Exception as exc:
-        logger.warning("Dashboard GET %s failed: %s", path, exc)
+        # Only log the first failure, suppress subsequent ones
+        if _server_connected:
+            logger.warning("Dashboard: server not available (will retry silently)")
+            _server_connected = False
         return None
 
 
 def _post(path: str, body: dict[str, Any] | None = None) -> Any:
+    global _server_connected
     import httpx
 
     try:
-        return httpx.post(f"{SERVER_URL}{path}", json=body or {}, timeout=2.0).json()
+        result = httpx.post(f"{SERVER_URL}{path}", json=body or {}, timeout=2.0).json()
+        if not _server_connected:
+            _server_connected = True
+        return result
     except Exception as exc:
-        logger.warning("Dashboard POST %s failed: %s", path, exc)
+        # Only log the first failure, suppress subsequent ones
+        if _server_connected:
+            logger.warning("Dashboard: server not available for POST")
+            _server_connected = False
         return None
 
 
